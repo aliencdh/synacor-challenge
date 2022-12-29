@@ -17,19 +17,28 @@ pub const REGISTER_COUNT: usize = 8;
 /// - `registers` are the 8 registers specified in the architecture spec.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MachineState {
-    pub mem: [u16; MAX_ADDR],
+    pub mem: Vec<u16>,
     pub cur: u16,
     pub registers: [u16; REGISTER_COUNT],
     pub stack: VecDeque<u16>,
 }
 impl MachineState {
-    pub fn new(mem: [u16; MAX_ADDR]) -> Self {
+    pub fn new(mem: Vec<u16>) -> Self {
         Self {
             mem,
             cur: 0,
             registers: [0; REGISTER_COUNT],
             stack: VecDeque::new(),
         }
+    }
+
+    pub fn run(&mut self) -> OpcodeResult {
+        for _ in 0..MAX_ADDR {
+            if let Err(err) = self.exec_next() {
+                return Err(err);
+            }
+        }
+        Ok(())
     }
 
     /// Executes the next operation.
@@ -55,7 +64,7 @@ impl MachineState {
             16 => self.wmem(),
             17 => self.call(),
             18 => self.ret(),
-            19 => self.out(),
+            19 => self.char_out(),
             21 => self.no_op(),
             op => Err(ExecutionError::InvalidOpcode(op, self.cur - 1)),
         }
@@ -73,13 +82,57 @@ impl MachineState {
             .map(|old| *old = val)
             .ok_or(ExecutionError::InvalidRegister(register, pos))
     }
+
+    /// Attempts to read from a register.
+    pub fn get_register(&self, register: usize, pos: u16) -> eyre::Result<u16, ExecutionError> {
+        self.registers
+            .get(
+                register
+                    .checked_sub(MAX_ADDR)
+                    .ok_or(ExecutionError::InvalidRegister(register, pos))?,
+            )
+            .map(|&val| val)
+            .ok_or(ExecutionError::InvalidRegister(register, pos))
+    }
+
+    /// Attempts to write the provided value to a register or a memory address.
+    pub fn write(&mut self, write_to: u16, val: u16, pos: u16) -> OpcodeResult {
+        if write_to < MAX_ADDR as u16 {
+            self.mem[write_to as usize] = val;
+            Ok(())
+        } else {
+            self.set_register(write_to as usize, val, pos)
+        }
+    }
+
+    /// Attempts to read from a register or a memory address.
+    pub fn read(&self, read_from: u16, pos: u16) -> eyre::Result<u16, ExecutionError> {
+        if read_from < MAX_ADDR as u16 {
+            Ok(self.mem[read_from as usize])
+        } else {
+            self.get_register(read_from as usize, pos)
+        }
+    }
 }
 
-fn main() {
-    println!("Hello, world!");
+fn main() -> eyre::Result<()> {
+    let data = include_bytes!("../challenge.bin")
+        .chunks(2)
+        .map(|chunk| u16::from_le_bytes(<[u8; 2]>::try_from(chunk).unwrap()))
+        .collect::<Vec<_>>();
+
+    let mut machine = MachineState::new(data);
+
+    match machine.run() {
+        Ok(()) | Err(ExecutionError::Halt) => {
+            println!("\n\n\nMachine exitted normally.");
+            Ok(())
+        }
+        Err(err) => Err(eyre::eyre!("{:?}", err)),
+    }
 }
 
-#[derive(thiserror::Error, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum ExecutionError {
     #[error("The program halted.")]
     Halt,
@@ -91,6 +144,10 @@ pub enum ExecutionError {
     EmptyStack(u16),
     #[error("Tried to access invalid address `{0}` at index `{1}`")]
     InvalidAddress(u16, u16),
+    #[error("Tried to read from stdin, which was empty, at index `{0}`")]
+    EmptyStdin(u16),
+    #[error("Encountered an error while trying to read from stdin at index `{1}`: {0}")]
+    ReadError(String, u16),
 }
 
 pub type OpcodeResult = eyre::Result<(), ExecutionError>;
