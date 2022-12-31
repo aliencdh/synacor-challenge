@@ -40,7 +40,8 @@ impl MachineState {
             .pop_back()
             .ok_or(ExecutionError::EmptyStack(self.cur - 1))?;
 
-        self.write(self.mem[self.cur as usize], top, self.cur)
+        self.cur += 1;
+        self.write(self.mem[self.cur as usize - 1], top, self.cur - 1)
     }
 
     /// Opcode: 4 a b c
@@ -400,7 +401,7 @@ mod tests {
         let mut machine = setup(vec![3]);
         machine.stack.push_back(10);
         assert_eq!(machine.exec_next(), Ok(()));
-        assert_eq!(machine.cur, 1);
+        assert_eq!(machine.cur, 2);
         assert_eq!(machine.mem[0], 10);
         assert!(machine.stack.is_empty());
     }

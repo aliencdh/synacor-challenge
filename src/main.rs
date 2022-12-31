@@ -121,6 +121,8 @@ fn main() -> eyre::Result<()> {
         .map(|chunk| u16::from_le_bytes(<[u8; 2]>::try_from(chunk).unwrap()))
         .collect::<Vec<_>>();
 
+    dbg!(&data[590..600]);
+
     let mut machine = MachineState::new(data);
 
     match machine.run() {
